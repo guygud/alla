@@ -134,23 +134,26 @@ export function buildDivision(dividend, divisor) {
       let work = rows[rows.length - 1];
       if (!work || work.line || work.minus) {
         const cells = blank(width);
-        if (current !== 0) placeAt(cells, i, current);
+        placeAt(cells, i, current);
         rows.push({ cells, minus: false, line: false });
         work = rows[rows.length - 1];
       }
+      const hint = current === 0
+        ? `Сносим ${nextDigit}. Получается ${nextVal}.`
+        : `К${"\u00A0"}${current} сносим ${nextDigit}. Получается ${nextVal}.`;
+      steps.push({
+        kind: "down",
+        prompt: `Сносим ${nextDigit}. Какое число получится?`,
+        expect: String(nextVal),
+        hint,
+        frame: snap(),
+      });
       if (current === 0) {
         for (let c = 0; c < width; c += 1) {
           if (work.cells[c] === "0") work.cells[c] = "";
         }
       }
       work.cells[i + 1] = String(nextDigit);
-      steps.push({
-        kind: "next",
-        prompt: `Сносим ${nextDigit}. Получается ${nextVal}.`,
-        expect: null,
-        hint: "",
-        frame: snap(),
-      });
     }
   }
 

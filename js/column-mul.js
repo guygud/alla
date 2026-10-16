@@ -130,8 +130,15 @@ function sumSteps(a, b) {
     const sum = terms.reduce((s, n) => s + n, 0) + incoming;
     const write = sum % 10;
     const newCarry = Math.floor(sum / 10);
-    if (terms.length <= 1 && incoming === 0) {
-      autos.push({ fromRight: col, digit: write });
+    if (terms.length === 1 && incoming === 0) {
+      steps.push({
+        kind: "sum-write",
+        fromRight: col,
+        expect: String(write),
+        prompt: "Какую цифру записываем?",
+        hint: `В этом разряде ${write}. Записываем ${write}.`,
+        fact: null,
+      });
       carry = 0;
       continue;
     }

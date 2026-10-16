@@ -139,6 +139,16 @@ test("деление строится из частного и остатка, �
   }
 });
 
+test("снос цифры не показывает ответ, пока его не ввели", () => {
+  const model = buildDivision(144, 3);
+  const down = model.steps.find((step) => step.kind === "down");
+  assert.equal(down.expect, "24");
+  assert.equal(down.prompt.includes("24"), false);
+  const shown = down.frame.rows.filter((row) => !row.line).map((row) => row.cells.join(""));
+  assert.equal(shown.includes("24"), false);
+  assert.ok(shown.includes("2"));
+});
+
 test("уголок 156 : 12 показывает частное 13 и остаток 0", () => {
   const model = buildDivision(156, 12);
   assert.equal(model.quotientText, "13");
