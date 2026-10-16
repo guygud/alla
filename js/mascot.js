@@ -16,8 +16,26 @@ export const STICKERS = [
   { title: "Герой", src: "./assets/pushin/13-hero.gif", need: 39 },
 ];
 
-export function unlockedStickers(count) {
-  return STICKERS.filter((item) => count >= item.need);
+export function stickerUnlocked(index, stars, solved) {
+  if (index === 0) return solved >= 1;
+  return stars >= STICKERS[index].need;
+}
+
+export function unlockedStickers(stars, solved = 0) {
+  return STICKERS.filter((_, index) => stickerUnlocked(index, stars, solved));
+}
+
+export function stickerLockText(index) {
+  if (index === 0) return "Первое задание";
+  const count = STICKERS[index].need;
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word = mod10 === 1 && mod100 !== 11
+    ? "звезда"
+    : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+      ? "звезды"
+      : "звёзд";
+  return `${count} ${word}`;
 }
 
 export function reactionFor({ change, star } = {}) {

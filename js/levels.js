@@ -383,6 +383,19 @@ export function dayTotals(state, day = moscowDay()) {
   return { ok, bad, total: ok + bad };
 }
 
+export function practiceCount(state) {
+  const daily = normalizeState(state).daily;
+  let total = 0;
+  for (const row of Object.values(daily)) {
+    if (!isObj(row)) continue;
+    for (const mode of MODES) {
+      total += Number(row[mode]?.ok) || 0;
+      total += Number(row[mode]?.bad) || 0;
+    }
+  }
+  return total;
+}
+
 function mondayOf(day) {
   const date = new Date(`${day}T00:00:00Z`);
   const weekday = date.getUTCDay();

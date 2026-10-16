@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { factCandidates, factKey, nextBox, pickFact } from "../js/facts.js";
-import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, normalizeState, recordPractice, reviewTarget, sessionBlurb, sessionPlan, touchStarDate } from "../js/levels.js";
+import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, normalizeState, practiceCount, recordPractice, reviewTarget, sessionBlurb, sessionPlan, touchStarDate } from "../js/levels.js";
+import { stickerLockText, stickerUnlocked, unlockedStickers } from "../js/mascot.js";
 import { columnAnswerDigits, columnModel, generateColumn } from "../js/column-mul.js";
 import { buildDivision, generateDivision } from "../js/long-div.js";
 
@@ -284,4 +285,18 @@ test("итог с новой звездой называет уровень", ()
   const lines = contributionLines(before, after);
   assert.ok(lines.some((line) => line.includes("Новый уровень")));
   assert.ok(lines.some((line) => line.includes("Новая звезда") && line.includes("Лёгкие")));
+});
+
+test("первая наклейка открывается после первого задания", () => {
+  const fresh = emptyState();
+  assert.equal(practiceCount(fresh), 0);
+  assert.equal(stickerUnlocked(0, 0, 0), false);
+  assert.equal(unlockedStickers(0, 0).length, 0);
+  const done = applyResult(fresh, "facts", { ok: true, ms: 1000, factKey: "2*2" }).state;
+  assert.equal(practiceCount(done), 1);
+  assert.equal(stickerUnlocked(0, 0, 1), true);
+  assert.equal(unlockedStickers(0, 1).length, 1);
+  assert.equal(stickerUnlocked(1, 0, 1), false);
+  assert.equal(stickerLockText(0), "Первое задание");
+  assert.equal(stickerLockText(1), "6 звёзд");
 });

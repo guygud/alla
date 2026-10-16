@@ -243,7 +243,7 @@ h1 {
 
 .stars .fresh { color: #e0a020; text-shadow: 0 0 0 1px #f3d27a; }
 
-.meter { margin: 0 0 10px; }
+.stickers-link { margin: -2px 0 8px; }
 
 .meter-top {
   display: flex;

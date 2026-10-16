@@ -16,6 +16,7 @@ import {
   levelNote,
   moscowDay,
   normalizeState,
+  practiceCount,
   progressLine,
   recordPractice,
   reviewLength,
@@ -29,7 +30,7 @@ import {
   weekMarks,
   windowProgress,
 } from "./levels.js";
-import { FALLBACK, STICKERS, reactionFor, unlockedStickers } from "./mascot.js";
+import { FALLBACK, STICKERS, reactionFor, stickerLockText, stickerUnlocked, unlockedStickers } from "./mascot.js";
 import { buildDivision, generateDivision } from "./long-div.js";
 import { freshData, loadLocal, saveLocal } from "./storage.js";
 import { el } from "./ui.js";
@@ -205,7 +206,7 @@ function homeScreen() {
   const state = data.state;
   const levels = state.levels;
   const total = starTotal(state);
-  const latest = unlockedStickers(total).at(-1);
+  const latest = unlockedStickers(total, practiceCount(state)).at(-1);
   const day = moscowDay();
   const today = dayTotals(state, day);
   const week = weekMarks(state, day);
@@ -233,13 +234,13 @@ function homeScreen() {
       el("p", { class: "quiet" }, `Занятий на этой неделе: ${sessions}.`),
       starBar("Звёзды", total, starCap()),
       ...MODES.map((mode) => starBar(MODE_TITLE[mode], starTotal(state, mode), starCap(mode))),
+      el("button", { class: "text stickers-link", type: "button", onclick: () => { ui.screen = "stickers"; render(); } }, "Наклейки"),
       el("div", { class: "stack" },
         el("button", { class: "primary", type: "button", onclick: startSession }, "Начать занятие"),
         el("p", { class: "quiet" }, sessionBlurb(state)),
         modeCard("facts", levels.facts, () => startFree("facts")),
         modeCard("column", levels.column, () => startFree("column")),
         modeCard("division", levels.division, () => startFree("division")),
-        el("button", { class: "text", type: "button", onclick: () => { ui.screen = "stickers"; render(); } }, "Наклейки"),
         el("a", { class: "linkish", href: "parent.html" }, "Для родителей"),
       ),
     ),
@@ -275,6 +276,10 @@ function starBar(label, value, max) {
     ),
     el("div", { class: "bar thin" }, el("i", { style: `width:${ratio}%` })),
   );
+}
+
+function currentStickers() {
+  return unlockedStickers(starTotal(data.state), practiceCount(data.state));
 }
 
 function examplesWord(count) {
@@ -689,7 +694,7 @@ function finishSession(expired) {
 function noteScreen() {
   return el("div", { class: "page" },
     el("main", { class: "note" },
-      mascotImg(unlockedStickers(starTotal(data.state)).at(-1), "mascot"),
+      mascotImg(currentStickers().at(-1), "mascot"),
       el("h1", {}, "Уровень"),
       el("p", { class: "lead" }, ui.note.text),
       ui.note.reaction ? el("p", { class: "quiet" }, ui.note.reaction) : null,
@@ -716,7 +721,7 @@ function summaryScreen() {
   const steps = events.length ? practicedProgress(before, after, tally) : [];
   return el("div", { class: "page" },
     el("main", { class: "summary" },
-      mascotImg(unlockedStickers(starTotal(data.state)).at(-1), "mascot"),
+      mascotImg(currentStickers().at(-1), "mascot"),
       el("h1", {}, "Занятие готово"),
       el("p", { class: "lead" }, expired
         ? "Десять минут прошли. Этого достаточно на сегодня."
@@ -750,6 +755,7 @@ function practicedProgress(before, after, tally) {
 
 function stickersScreen() {
   const total = starTotal(data.state);
+  const solved = practiceCount(data.state);
   return el("div", { class: "page" },
     el("header", { class: "top" },
       el("button", { class: "text", type: "button", onclick: goHome }, "На главную"),
@@ -757,12 +763,12 @@ function stickersScreen() {
     ),
     el("main", {},
       el("h1", {}, "Наклейки"),
-      el("p", { class: "quiet" }, "Новая наклейка за каждые 3 звезды."),
-      el("div", { class: "stickers" }, STICKERS.map((item) => {
-        const open = total >= item.need;
+      el("p", { class: "quiet" }, "Первая наклейка за первое задание. Дальше новая за каждые 3 звезды."),
+      el("div", { class: "stickers" }, STICKERS.map((item, index) => {
+        const open = stickerUnlocked(index, total, solved);
         return el("figure", { class: open ? "sticker" : "sticker locked" },
           open ? mascotImg(item, "sticker-img") : el("img", { class: "sticker-img", src: FALLBACK, alt: "" }),
-          el("figcaption", {}, open ? item.title : `${item.need} звёзд`),
+          el("figcaption", {}, open ? item.title : stickerLockText(index)),
         );
       })),
     ),
