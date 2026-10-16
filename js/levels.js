@@ -1,4 +1,4 @@
-export const SESSION_MS = 10 * 60 * 1000;
+export const SESSION_MS = 7 * 60 * 1000;
 
 export const LEVEL_NAMES = {
   facts: ["Лёгкие", "Увереннее", "Вся таблица", "На скорость"],
@@ -458,6 +458,14 @@ export function sessionPlan(state) {
   return mixFactsAnd(open.find((mode) => mode !== "facts"));
 }
 
+export function nextSessionMode(plan, index) {
+  return plan[index % plan.length];
+}
+
+export function sessionStillOpen(startedAt, now) {
+  return now - startedAt < SESSION_MS;
+}
+
 const DONE_TEXT = {
   facts: "Таблица освоена.",
   column: "Столбик освоен.",
@@ -478,7 +486,7 @@ const TODAY_TEXT = {
 
 export function sessionBlurb(state) {
   const done = masteredModes(state);
-  if (done.length === 0) return `10 минут: таблица, столбик и${NB}уголок.`;
+  if (done.length === 0) return `7 минут: таблица, столбик и${NB}уголок.`;
   if (done.length === 3) return `Всё освоено. Сегодня повторяем столбик и${NB}уголок.`;
   const open = ["facts", "column", "division"].filter((mode) => !done.includes(mode));
   return `${DONE_TEXT[done.join("+")]} Сегодня ${TODAY_TEXT[open.join("+")]}.`;

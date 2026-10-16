@@ -23,6 +23,8 @@ import {
   reviewTarget,
   sessionBlurb,
   sessionPlan,
+  sessionStillOpen,
+  nextSessionMode,
   starCap,
   starMarks,
   starTotal,
@@ -366,7 +368,7 @@ function drillScreen() {
   const sub = review
     ? `${review.index + 1} из ${review.total}`
     : session
-      ? `${session.cursor + 1} из ${session.tasks.length}`
+      ? `сделано ${session.cursor}`
       : LEVEL_NAMES[drill.mode][drill.level];
   const step = drill.mode === "facts" ? null : drill.problem.steps[drill.step];
   const info = step && step.expect == null;
@@ -614,9 +616,9 @@ function advance() {
     return;
   }
   session.cursor += 1;
-  const expired = Date.now() - session.startedAt >= SESSION_MS;
-  if (!(expired || session.cursor >= session.tasks.length)) {
-    beginProblem(session.tasks[session.cursor]);
+  const expired = !sessionStillOpen(session.startedAt, Date.now());
+  if (!expired) {
+    beginProblem(nextSessionMode(session.tasks, session.cursor));
     return;
   }
   const target = reviewTarget(data.state, moscowDay());
@@ -724,7 +726,7 @@ function summaryScreen() {
       mascotImg(currentStickers().at(-1), "mascot"),
       el("h1", {}, "Занятие готово"),
       el("p", { class: "lead" }, expired
-        ? "Десять минут прошли. Этого достаточно на сегодня."
+        ? "Семь минут прошли. Этого достаточно на сегодня."
         : "Все примеры из занятия сделаны."),
       el("p", { class: "quiet" }, reactionFor()),
       ...rows,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { factCandidates, factKey, nextBox, pickFact } from "../js/facts.js";
-import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, normalizeState, practiceCount, recordPractice, reviewTarget, sessionBlurb, sessionPlan, touchStarDate } from "../js/levels.js";
+import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, nextSessionMode, normalizeState, practiceCount, recordPractice, reviewTarget, sessionBlurb, sessionPlan, sessionStillOpen, SESSION_MS, touchStarDate } from "../js/levels.js";
 import { stickerLockText, stickerUnlocked, unlockedStickers } from "../js/mascot.js";
 import { columnAnswerDigits, columnModel, generateColumn } from "../js/column-mul.js";
 import { buildDivision, generateDivision } from "../js/long-div.js";
@@ -89,7 +89,7 @@ test("план занятия: таблица, два столбика и одн
   assert.equal(plan.length, 13);
   assert.equal(plan.filter((mode) => mode === "column").length, 2);
   assert.equal(plan.filter((mode) => mode === "division").length, 1);
-  assert.equal(sessionBlurb(), "10 минут: таблица, столбик и\u00A0уголок.");
+  assert.equal(sessionBlurb(), "7 минут: таблица, столбик и\u00A0уголок.");
 });
 
 test("освоенная таблица уходит из занятия, а столбик и уголок остаются", () => {
@@ -116,6 +116,15 @@ test("если таблица и столбик освоены, занятие �
   assert.ok(plan.length >= 6);
   assert.ok(plan.every((mode) => mode === "division"));
   assert.equal(sessionBlurb(withMastery(["facts", "column"])), "Таблица и\u00A0столбик освоены. Сегодня уголок.");
+});
+
+test("цикл занятия повторяется, пока не вышли 7 минут", () => {
+  const plan = sessionPlan();
+  assert.equal(nextSessionMode(plan, plan.length), plan[0]);
+  assert.equal(nextSessionMode(plan, plan.length + 1), plan[1]);
+  assert.equal(sessionStillOpen(1_000, 1_000 + SESSION_MS - 1), true);
+  assert.equal(sessionStillOpen(1_000, 1_000 + SESSION_MS), false);
+  assert.equal(SESSION_MS, 7 * 60 * 1000);
 });
 
 test("отстающий столбик получает больше места, чем уголок", () => {
