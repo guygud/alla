@@ -6,13 +6,30 @@ import {
   LEVEL_NAMES,
   MODE_META,
   MODE_TITLE,
+  MODES,
   SESSION_MS,
   applyResult,
+  contributionLines,
+  dayTotals,
   emptyState,
+  grantNextStar,
   levelNote,
+  moscowDay,
   normalizeState,
+  progressLine,
+  recordPractice,
+  reviewLength,
+  reviewTarget,
+  sessionBlurb,
   sessionPlan,
+  starCap,
+  starMarks,
+  starTotal,
+  touchStarDate,
+  weekMarks,
+  windowProgress,
 } from "./levels.js";
+import { FALLBACK, STICKERS, reactionFor, unlockedStickers } from "./mascot.js";
 import { buildDivision, generateDivision } from "./long-div.js";
 import { freshData, loadLocal, saveLocal } from "./storage.js";
 import { el } from "./ui.js";
@@ -54,6 +71,7 @@ function render() {
   else if (ui.screen === "home") page = homeScreen();
   else if (ui.screen === "drill") page = drillScreen();
   else if (ui.screen === "note") page = noteScreen();
+  else if (ui.screen === "stickers") page = stickersScreen();
   else page = summaryScreen();
   root.replaceChildren(page);
   document.getElementById("name")?.focus();
@@ -70,7 +88,7 @@ function tickChrome() {
   }
   const bar = document.getElementById("timebar");
   if (bar && ui.drill.mode === "facts") {
-    const limit = MODE_META.facts.times[data.state.levels.facts];
+    const limit = MODE_META.facts.times[ui.drill.level ?? data.state.levels.facts];
     const ratio = Math.max(0, 1 - (Date.now() - ui.drill.startedAt) / limit);
     bar.style.width = `${Math.round(ratio * 100)}%`;
     bar.parentElement.classList.toggle("late", ratio <= 0);
@@ -184,22 +202,44 @@ function adoptLogin(res, pin) {
 }
 
 function homeScreen() {
-  const levels = data.state.levels;
+  const state = data.state;
+  const levels = state.levels;
+  const total = starTotal(state);
+  const latest = unlockedStickers(total).at(-1);
+  const day = moscowDay();
+  const today = dayTotals(state, day);
+  const week = weekMarks(state, day);
+  const sessions = week.filter((item) => item.active).length;
   return el("div", { class: "page" },
     el("header", { class: "top" },
       el("p", { class: "brand" }, "Тренажёр"),
       el("button", { class: "text", type: "button", onclick: switchName }, "Сменить имя"),
     ),
     el("main", {},
-      el("h1", {}, `Привет, ${data.profile.name}`),
+      el("div", { class: "hero" },
+        mascotImg(latest, "mascot"),
+        el("div", {},
+          el("h1", {}, `Привет, ${data.profile.name}`),
+          el("p", { class: "quiet" }, today.total
+            ? `Сегодня: ${today.total} ${examplesWord(today.total)}, ${today.ok} верно.`
+            : "Сегодня ещё не было примеров."),
+        ),
+      ),
       ui.status ? el("p", { class: "quiet" }, ui.status) : null,
       data.queue.length ? el("p", { class: "quiet" }, "Есть ответы, которые ещё не отправились.") : null,
+      el("div", { class: "week" }, week.map((item) => el("i", {
+        class: `${item.active ? "on" : ""}${item.today ? " today" : ""}`,
+      }, item.label))),
+      el("p", { class: "quiet" }, `Занятий на этой неделе: ${sessions}.`),
+      starBar("Звёзды", total, starCap()),
+      ...MODES.map((mode) => starBar(MODE_TITLE[mode], starTotal(state, mode), starCap(mode))),
       el("div", { class: "stack" },
         el("button", { class: "primary", type: "button", onclick: startSession }, "Начать занятие"),
-        el("p", { class: "quiet" }, `10 минут: таблица, столбик и${NB}уголок.`),
+        el("p", { class: "quiet" }, sessionBlurb(state)),
         modeCard("facts", levels.facts, () => startFree("facts")),
         modeCard("column", levels.column, () => startFree("column")),
         modeCard("division", levels.division, () => startFree("division")),
+        el("button", { class: "text", type: "button", onclick: () => { ui.screen = "stickers"; render(); } }, "Наклейки"),
         el("a", { class: "linkish", href: "parent.html" }, "Для родителей"),
       ),
     ),
@@ -207,9 +247,56 @@ function homeScreen() {
 }
 
 function modeCard(mode, level, onclick) {
+  const progress = windowProgress(mode, level, data.state.recent[mode]);
+  const ratio = progress.need ? Math.round((progress.have / progress.need) * 100) : 0;
   return el("button", { class: "card", type: "button", onclick },
-    el("b", {}, MODE_TITLE[mode]),
+    el("span", { class: "card-main" },
+      el("b", {}, MODE_TITLE[mode]),
+      starRow(data.state, mode, level),
+      el("span", { class: "quiet" }, `${progress.have} из ${progress.need}, ошибок ${progress.errors}, можно ${progress.allowedErrors}`),
+      el("span", { class: "bar thin" }, el("i", { style: `width:${ratio}%` })),
+    ),
     el("span", {}, LEVEL_NAMES[mode][level]));
+}
+
+function starRow(state, mode, level) {
+  const day = moscowDay();
+  return el("span", { class: "stars" }, starMarks(state, mode, level, day).map((mark) => el("i", {
+    class: `${mark.on ? "on" : ""}${mark.fresh ? " fresh" : ""}`,
+  }, mark.on ? "★" : "☆")));
+}
+
+function starBar(label, value, max) {
+  const ratio = max ? Math.round((value / max) * 100) : 0;
+  return el("div", { class: "meter" },
+    el("div", { class: "meter-top" },
+      el("span", {}, label),
+      el("b", {}, `${value} из ${max}`),
+    ),
+    el("div", { class: "bar thin" }, el("i", { style: `width:${ratio}%` })),
+  );
+}
+
+function examplesWord(count) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "пример";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "примера";
+  return "примеров";
+}
+
+function mascotImg(sticker, className) {
+  return el("img", {
+    class: className || "mascot",
+    src: sticker?.src || FALLBACK,
+    alt: sticker?.title || "Пушин",
+    onerror: (event) => {
+      const img = event.currentTarget;
+      if (img.dataset.fallback) return;
+      img.dataset.fallback = "1";
+      img.src = FALLBACK;
+    },
+  });
 }
 
 async function switchName() {
@@ -222,9 +309,10 @@ async function switchName() {
 function startSession() {
   ui.drill = {
     session: {
-      tasks: sessionPlan(),
+      tasks: sessionPlan(data.state),
       cursor: 0,
       startedAt: Date.now(),
+      before: structuredClone(normalizeState(data.state)),
       tally: { facts: { ok: 0, bad: 0 }, column: { ok: 0, bad: 0 }, division: { ok: 0, bad: 0 } },
       notes: [],
     },
@@ -237,8 +325,8 @@ function startFree(mode) {
   beginProblem(mode);
 }
 
-function beginProblem(mode) {
-  const level = data.state.levels[mode];
+function beginProblem(mode, options = {}) {
+  const level = Number.isInteger(options.level) ? options.level : data.state.levels[mode];
   let problem;
   if (mode === "facts") problem = pickFact(data.state.boxes, level);
   else if (mode === "column") {
@@ -250,6 +338,8 @@ function beginProblem(mode) {
   }
   Object.assign(ui.drill, {
     mode,
+    level,
+    review: !!options.review,
     problem,
     step: 0,
     entry: "",
@@ -265,18 +355,21 @@ function beginProblem(mode) {
 function drillScreen() {
   const drill = ui.drill;
   const session = drill.session;
+  const review = session?.phase === "review" ? session.review : null;
   const left = session ? Math.max(0, SESSION_MS - (Date.now() - session.startedAt)) : 0;
-  const title = session ? `Занятие · ${clockText(left)}` : MODE_TITLE[drill.mode];
-  const sub = session
-    ? `${session.cursor + 1} из ${session.tasks.length}`
-    : LEVEL_NAMES[drill.mode][data.state.levels[drill.mode]];
+  const title = review ? "Повторение" : session ? `Занятие · ${clockText(left)}` : MODE_TITLE[drill.mode];
+  const sub = review
+    ? `${review.index + 1} из ${review.total}`
+    : session
+      ? `${session.cursor + 1} из ${session.tasks.length}`
+      : LEVEL_NAMES[drill.mode][drill.level];
   const step = drill.mode === "facts" ? null : drill.problem.steps[drill.step];
   const info = step && step.expect == null;
   return el("div", { class: "page drill-page" },
     el("header", { class: "top" },
       el("button", { class: "text", type: "button", onclick: goHome }, "На главную"),
       el("div", {},
-        el("div", { id: session ? "clock" : undefined }, title),
+        el("div", { id: session && !review ? "clock" : undefined }, title),
         el("div", { class: "quiet" }, sub),
       ),
     ),
@@ -299,7 +392,7 @@ function drillScreen() {
 }
 
 function factsView(drill) {
-  const limit = MODE_META.facts.times[data.state.levels.facts];
+  const limit = MODE_META.facts.times[drill.level ?? data.state.levels.facts];
   const ratio = Math.max(0, 1 - (Date.now() - drill.startedAt) / limit);
   return el("div", { class: "stage" },
     el("div", { class: "eq", "aria-live": "polite" },
@@ -442,14 +535,6 @@ function finishProblem() {
   const drill = ui.drill;
   const ms = Date.now() - drill.startedAt;
   const ok = !drill.missed;
-  const fact = drill.mode === "facts" ? drill.problem.key : null;
-  const result = applyResult(data.state, drill.mode, {
-    ok,
-    ms,
-    factKey: fact,
-    weakKeys: [...drill.weak],
-  });
-  data.state = result.state;
   data.queue.push({
     id: crypto.randomUUID(),
     mode: drill.mode,
@@ -458,16 +543,46 @@ function finishProblem() {
     at: new Date().toISOString(),
     detail: detailOf(drill),
   });
+  if (drill.review) {
+    data.state = recordPractice(data.state, drill.mode, { ok, ms });
+    if (drill.session) {
+      const slot = drill.session.tally[drill.mode];
+      slot.ok += ok ? 1 : 0;
+      slot.bad += ok ? 0 : 1;
+      if (!ok) drill.session.review.clean = false;
+    }
+    persist();
+    sync();
+    advance();
+    return;
+  }
+  const fact = drill.mode === "facts" ? drill.problem.key : null;
+  const result = applyResult(data.state, drill.mode, {
+    ok,
+    ms,
+    factKey: fact,
+    weakKeys: [...drill.weak],
+  });
+  data.state = result.state;
   if (drill.session) {
     const slot = drill.session.tally[drill.mode];
     slot.ok += ok ? 1 : 0;
     slot.bad += ok ? 0 : 1;
     if (result.change) drill.session.notes.push(levelNote(drill.mode, result.change, result.level));
+    if (result.star) {
+      drill.session.notes.push(`Новая звезда на уровне «${LEVEL_NAMES[result.star.mode][result.star.level]}».`);
+    }
   }
   persist();
   sync();
-  if (result.change) {
-    ui.note = { text: levelNote(drill.mode, result.change, result.level) };
+  if (result.change || result.star) {
+    const parts = [];
+    if (result.change) parts.push(levelNote(drill.mode, result.change, result.level));
+    if (result.star) parts.push(`Звезда за «${LEVEL_NAMES[result.star.mode][result.star.level]}».`);
+    ui.note = {
+      text: parts.join(" "),
+      reaction: reactionFor({ change: result.change, star: !!result.star }),
+    };
     ui.screen = "note";
     render();
     return;
@@ -489,47 +604,167 @@ function advance() {
     beginProblem(ui.drill.mode);
     return;
   }
-  session.cursor += 1;
-  const expired = Date.now() - session.startedAt >= SESSION_MS;
-  if (expired || session.cursor >= session.tasks.length) {
-    ui.summary = { tally: session.tally, notes: session.notes.slice(), expired };
-    ui.drill = null;
-    ui.screen = "summary";
-    render();
+  if (session.phase === "review") {
+    advanceReview();
     return;
   }
-  beginProblem(session.tasks[session.cursor]);
+  session.cursor += 1;
+  const expired = Date.now() - session.startedAt >= SESSION_MS;
+  if (!(expired || session.cursor >= session.tasks.length)) {
+    beginProblem(session.tasks[session.cursor]);
+    return;
+  }
+  const target = reviewTarget(data.state, moscowDay());
+  if (target) {
+    session.phase = "review";
+    session.expired = expired;
+    session.review = {
+      mode: target.mode,
+      level: target.level,
+      total: reviewLength(target.mode),
+      index: 0,
+      clean: true,
+    };
+    beginProblem(target.mode, { level: target.level, review: true });
+    return;
+  }
+  finishSession(expired);
+}
+
+function advanceReview() {
+  const review = ui.drill.session.review;
+  if (!review.clean || review.index + 1 >= review.total) {
+    closeReview();
+    return;
+  }
+  review.index += 1;
+  beginProblem(review.mode, { level: review.level, review: true });
+}
+
+function closeReview() {
+  const session = ui.drill.session;
+  const review = session.review;
+  const day = moscowDay();
+  const name = LEVEL_NAMES[review.mode][review.level];
+  if (review.clean) {
+    const result = grantNextStar(data.state, review.mode, review.level, day);
+    data.state = result.state;
+    if (result.gained) {
+      session.notes.push(`Новая звезда на уровне «${name}».`);
+      persist();
+      sync();
+      ui.note = {
+        text: `Новая звезда на уровне «${name}».`,
+        reaction: reactionFor({ star: true }),
+        after: () => finishSession(!!session.expired),
+      };
+      ui.screen = "note";
+      render();
+      return;
+    }
+  } else {
+    data.state = touchStarDate(data.state, review.mode, review.level, day);
+    session.notes.push(`Проверка «${name}» в этот раз без звезды. Можно снова через 3 дня.`);
+  }
+  persist();
+  sync();
+  finishSession(!!session.expired);
+}
+
+function finishSession(expired) {
+  const session = ui.drill.session;
+  ui.summary = {
+    tally: session.tally,
+    notes: session.notes.slice(),
+    expired,
+    before: session.before,
+    after: data.state,
+  };
+  ui.drill = null;
+  ui.note = null;
+  ui.screen = "summary";
+  render();
 }
 
 function noteScreen() {
   return el("div", { class: "page" },
     el("main", { class: "note" },
+      mascotImg(unlockedStickers(starTotal(data.state)).at(-1), "mascot"),
       el("h1", {}, "Уровень"),
       el("p", { class: "lead" }, ui.note.text),
-      el("button", { class: "primary", type: "button", onclick: advance }, "Далее"),
+      ui.note.reaction ? el("p", { class: "quiet" }, ui.note.reaction) : null,
+      el("button", { class: "primary", type: "button", onclick: () => {
+        const after = ui.note?.after;
+        if (after) after();
+        else advance();
+      } }, "Далее"),
     ),
   );
 }
 
 function summaryScreen() {
-  const { tally, notes, expired } = ui.summary;
-  const rows = ["facts", "column", "division"].map((mode) => {
+  const { tally, notes, expired, before, after } = ui.summary;
+  const rows = MODES.map((mode) => {
     const slot = tally[mode];
     const total = slot.ok + slot.bad;
     if (!total) return null;
     return el("div", { class: "stat" },
       el("span", {}, MODE_TITLE[mode]),
-      el("b", {}, `${slot.ok} из ${total}`));
+      el("b", {}, `${total} ${examplesWord(total)}, ${slot.ok} верно`));
   });
+  const events = before && after ? contributionLines(before, after) : [];
+  const steps = events.length ? practicedProgress(before, after, tally) : [];
   return el("div", { class: "page" },
     el("main", { class: "summary" },
+      mascotImg(unlockedStickers(starTotal(data.state)).at(-1), "mascot"),
       el("h1", {}, "Занятие готово"),
       el("p", { class: "lead" }, expired
         ? "Десять минут прошли. Этого достаточно на сегодня."
         : "Все примеры из занятия сделаны."),
+      el("p", { class: "quiet" }, reactionFor()),
       ...rows,
-      ...notes.map((text) => el("p", { class: "quiet" }, text)),
+      ...events.map((text) => el("p", {}, text)),
+      ...steps.map((text) => el("p", { class: "quiet" }, text)),
+      ...notes.filter((text) => !events.includes(text)).map((text) => el("p", { class: "quiet" }, text)),
       el("button", { class: "primary", type: "button", onclick: goHome, style: "margin-top:18px" }, "На главную"),
+    ),
+  );
+}
+
+function practicedProgress(before, after, tally) {
+  const lines = [];
+  for (const mode of MODES) {
+    const slot = tally[mode];
+    if (!slot || slot.ok + slot.bad === 0) continue;
+    if (before.levels[mode] !== after.levels[mode]) continue;
+    let starred = false;
+    for (let level = 0; level <= MODE_META[mode].max; level += 1) {
+      if ((after.stars[mode][level]?.n || 0) > (before.stars[mode][level]?.n || 0)) starred = true;
+    }
+    if (starred) continue;
+    if (windowProgress(mode, after.levels[mode], after.recent[mode]).have === 0) continue;
+    lines.push(progressLine(mode, after));
+  }
+  return lines;
+}
+
+function stickersScreen() {
+  const total = starTotal(data.state);
+  return el("div", { class: "page" },
+    el("header", { class: "top" },
+      el("button", { class: "text", type: "button", onclick: goHome }, "На главную"),
+      el("p", { class: "quiet" }, `${total} из ${starCap()}`),
+    ),
+    el("main", {},
+      el("h1", {}, "Наклейки"),
+      el("p", { class: "quiet" }, "Новая наклейка за каждые 3 звезды."),
+      el("div", { class: "stickers" }, STICKERS.map((item) => {
+        const open = total >= item.need;
+        return el("figure", { class: open ? "sticker" : "sticker locked" },
+          open ? mascotImg(item, "sticker-img") : el("img", { class: "sticker-img", src: FALLBACK, alt: "" }),
+          el("figcaption", {}, open ? item.title : `${item.need} звёзд`),
+        );
+      })),
     ),
   );
 }

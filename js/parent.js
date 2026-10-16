@@ -1,6 +1,6 @@
 import { parentReport } from "./api.js";
 import { renderKeypad } from "./keypad.js";
-import { LEVEL_NAMES, MODE_TITLE, normalizeState } from "./levels.js";
+import { LEVEL_NAMES, MODE_TITLE, MODES, MODE_META, normalizeState, starMarks } from "./levels.js";
 import { el } from "./ui.js";
 
 const NB = "\u00A0";
@@ -112,6 +112,7 @@ function reportScreen() {
     el("main", {},
       el("h1", {}, name),
       levelsBlock(state),
+      starsBlock(state),
       accuracyBlock(report.modes || {}),
       el("h2", {}, "Таблица 2–9"),
       el("p", { class: "quiet" }, `Клетка 7${NB}×${NB}8 общая с${NB}8${NB}×${NB}7. Серым отмечено то, чего ещё не было.`),
@@ -123,6 +124,22 @@ function reportScreen() {
   );
 }
 
+function starsBlock(state) {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date());
+  return el("div", {},
+    el("h2", {}, "Звёзды по уровням"),
+    el("p", { class: "quiet" }, "Звезда остаётся, даже если уровень потом опустился."),
+    MODES.map((mode) => el("div", {},
+      el("h2", {}, MODE_TITLE[mode]),
+      Array.from({ length: MODE_META[mode].max + 1 }, (_, level) => el("div", { class: "stat" },
+        el("span", {}, LEVEL_NAMES[mode][level]),
+        el("b", { class: "stars" }, starMarks(state, mode, level, day).map((mark) => el("i", {
+          class: mark.on ? "on" : "",
+        }, mark.on ? "★" : "☆"))),
+      )),
+    )),
+  );
+}
 function levelsBlock(state) {
   return el("div", {},
     ["facts", "column", "division"].map((mode) => el("div", { class: "stat" },

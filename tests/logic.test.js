@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { factCandidates, factKey, nextBox, pickFact } from "../js/facts.js";
-import { applyResult, emptyState, nextLevel, sessionPlan } from "../js/levels.js";
+import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, normalizeState, recordPractice, reviewTarget, sessionBlurb, sessionPlan, touchStarDate } from "../js/levels.js";
 import { columnAnswerDigits, columnModel, generateColumn } from "../js/column-mul.js";
 import { buildDivision, generateDivision } from "../js/long-div.js";
 
@@ -73,11 +73,57 @@ test("серия ошибок в занятии понижает уровень 
   assert.equal(state.stats["6*7"].bad, 4);
 });
 
+function withMastery(modes) {
+  const state = emptyState();
+  for (const mode of modes) {
+    const level = mode === "facts" ? 3 : mode === "column" ? 4 : 3;
+    state.levels[mode] = level;
+    state.recent[mode] = Array.from({ length: mode === "facts" ? 15 : 8 }, () => ({ ok: true, ms: 1000 }));
+  }
+  return state;
+}
+
 test("план занятия: таблица, два столбика и одно деление", () => {
   const plan = sessionPlan();
   assert.equal(plan.length, 13);
   assert.equal(plan.filter((mode) => mode === "column").length, 2);
   assert.equal(plan.filter((mode) => mode === "division").length, 1);
+  assert.equal(sessionBlurb(), "10 минут: таблица, столбик и\u00A0уголок.");
+});
+
+test("освоенная таблица уходит из занятия, а столбик и уголок остаются", () => {
+  const state = withMastery(["facts"]);
+  assert.equal(modeMastered("facts", state.levels.facts, state.recent.facts), true);
+  const plan = sessionPlan(state);
+  assert.equal(plan.includes("facts"), false);
+  assert.equal(plan[0], "division");
+  assert.equal(plan.filter((mode) => mode === "division").length, 4);
+  assert.equal(plan.filter((mode) => mode === "column").length, 4);
+  assert.equal(sessionBlurb(state), "Таблица освоена. Сегодня столбик и\u00A0уголок.");
+});
+
+test("уровень «на скорость» без устойчивого окна ещё не убирает таблицу", () => {
+  const state = emptyState();
+  state.levels.facts = 3;
+  state.recent.facts = Array.from({ length: 15 }, (_, i) => ({ ok: i > 2, ms: 1000 }));
+  assert.equal(modeMastered("facts", 3, state.recent.facts), false);
+  assert.equal(sessionPlan(state).filter((mode) => mode === "facts").length, 10);
+});
+
+test("если таблица и столбик освоены, занятие состоит из уголков", () => {
+  const plan = sessionPlan(withMastery(["facts", "column"]));
+  assert.ok(plan.length >= 6);
+  assert.ok(plan.every((mode) => mode === "division"));
+  assert.equal(sessionBlurb(withMastery(["facts", "column"])), "Таблица и\u00A0столбик освоены. Сегодня уголок.");
+});
+
+test("отстающий столбик получает больше места, чем уголок", () => {
+  const state = withMastery(["facts"]);
+  state.levels.division = 2;
+  const plan = sessionPlan(state);
+  assert.equal(plan[0], "column");
+  assert.equal(plan.filter((mode) => mode === "column").length, 5);
+  assert.equal(plan.filter((mode) => mode === "division").length, 3);
 });
 
 test("столбик сходится с произведением на всех уровнях", () => {
@@ -157,4 +203,85 @@ test("уголок 156 : 12 показывает частное 13 и остат
   assert.deepEqual(texts, ["156", "12", "36", "36", "0"]);
   assert.equal(rem.rows[1].minus, true);
   assert.equal(rem.rows[4].minus, true);
+});
+
+function shiftDay(day, days) {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+test("первая звезда даётся за пройденный уровень и за последний уровень", () => {
+  let state = emptyState();
+  state.recent.facts = Array.from({ length: 14 }, () => ({ ok: true, ms: 1000 }));
+  const up = applyResult(state, "facts", { ok: true, ms: 1000, factKey: "2*3" });
+  assert.equal(up.change, "up");
+  assert.equal(up.state.levels.facts, 1);
+  assert.equal(up.state.stars.facts[0].n, 1);
+  assert.equal(up.star.level, 0);
+
+  state = emptyState();
+  state.levels.facts = 3;
+  state.recent.facts = Array.from({ length: 14 }, () => ({ ok: true, ms: 1000 }));
+  const top = applyResult(state, "facts", { ok: true, ms: 1000, factKey: "2*3" });
+  assert.equal(top.change, null);
+  assert.equal(top.state.levels.facts, 3);
+  assert.equal(top.state.stars.facts[3].n, 1);
+});
+
+test("вторая звезда только через 3 дня, ошибка не даёт звезду и не меняет уровень", () => {
+  let state = emptyState();
+  state.levels.facts = 1;
+  state.stars.facts[0] = { n: 1, last: "2026-10-01" };
+  assert.equal(reviewTarget(state, "2026-10-01"), null);
+  assert.equal(reviewTarget(state, shiftDay("2026-10-01", 2)), null);
+  assert.deepEqual(reviewTarget(state, shiftDay("2026-10-01", 3)), { mode: "facts", level: 0 });
+
+  const day = shiftDay("2026-10-01", 3);
+  const missed = touchStarDate(state, "facts", 0, day);
+  assert.equal(missed.stars.facts[0].n, 1);
+  assert.equal(missed.levels.facts, 1);
+  assert.equal(missed.recent.facts.length, 0);
+  assert.equal(reviewTarget(missed, day), null);
+  assert.deepEqual(reviewTarget(missed, shiftDay(day, 3)), { mode: "facts", level: 0 });
+
+  const practiced = recordPractice(state, "facts", { ok: false, ms: 1000 });
+  assert.equal(practiced.levels.facts, 1);
+  assert.equal(practiced.recent.facts.length, 0);
+  assert.equal(practiced.stars.facts[0].n, 1);
+});
+
+test("звёзды не уменьшаются при понижении уровня", () => {
+  let state = emptyState();
+  state.levels.facts = 2;
+  state.stars.facts[1] = { n: 2, last: "2026-01-01" };
+  for (let i = 0; i < 4; i += 1) {
+    state = applyResult(state, "facts", { ok: false, ms: 3000, factKey: "6*7" }).state;
+  }
+  assert.equal(state.levels.facts, 1);
+  assert.equal(state.stars.facts[1].n, 2);
+});
+
+test("старое состояние без звёзд нормализуется", () => {
+  const state = normalizeState({ levels: { facts: 1 }, updatedAt: "2026-01-01T00:00:00.000Z" });
+  assert.equal(state.levels.facts, 1);
+  assert.ok(state.stars.facts.every((item) => item === null));
+  assert.equal(state.stars.column.length, 5);
+});
+
+test("в день без звезды итог показывает шаг к проверке", () => {
+  const before = emptyState();
+  const after = applyResult(before, "column", { ok: true, ms: 1000 }).state;
+  const lines = contributionLines(before, after);
+  assert.equal(lines.some((line) => line.includes("звезда")), false);
+  assert.equal(lines.some((line) => line.includes("столбик 1 из 8")), true);
+});
+
+test("итог с новой звездой называет уровень", () => {
+  const before = emptyState();
+  before.recent.facts = Array.from({ length: 14 }, () => ({ ok: true, ms: 1000 }));
+  const after = applyResult(before, "facts", { ok: true, ms: 1000, factKey: "2*3" }).state;
+  const lines = contributionLines(before, after);
+  assert.ok(lines.some((line) => line.includes("Новый уровень")));
+  assert.ok(lines.some((line) => line.includes("Новая звезда") && line.includes("Лёгкие")));
 });

@@ -1,4 +1,4 @@
-const CACHE = "trainer-v1";
+const CACHE = "trainer-v2";
 const FILES = [
   "./",
   "./index.html",
@@ -12,12 +12,27 @@ const FILES = [
   "./js/keypad.js",
   "./js/facts.js",
   "./js/levels.js",
+  "./js/mascot.js",
   "./js/column-mul.js",
   "./js/long-div.js",
   "./manifest.json",
   "./icon.svg",
   "./icon-180.png",
   "./icon-512.png",
+  "./assets/pushin/fallback.svg",
+  "./assets/pushin/01-sit.gif",
+  "./assets/pushin/02-cookie.gif",
+  "./assets/pushin/03-sleep.gif",
+  "./assets/pushin/04-donut.gif",
+  "./assets/pushin/05-box.gif",
+  "./assets/pushin/06-pizza.gif",
+  "./assets/pushin/07-write.gif",
+  "./assets/pushin/08-cocoa.gif",
+  "./assets/pushin/09-party.gif",
+  "./assets/pushin/10-cake.gif",
+  "./assets/pushin/11-hat.gif",
+  "./assets/pushin/12-cupcake.gif",
+  "./assets/pushin/13-hero.gif",
 ];
 
 self.addEventListener("install", (event) => {

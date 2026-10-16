@@ -130,8 +130,16 @@ h1 {
   box-shadow: var(--shadow);
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.card-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
 }
 
 .card b {
@@ -139,7 +147,7 @@ h1 {
   font-size: 1.35rem;
 }
 
-.card span { color: var(--muted); }
+.card > span { color: var(--muted); }
 
 .field {
   width: 100%;
@@ -209,6 +217,97 @@ h1 {
 }
 
 .bar.late i { background: var(--mark); }
+
+.bar.thin { width: 100%; height: 6px; }
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hero h1 { margin: 0 0 4px; }
+
+.mascot {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  flex: none;
+}
+
+.stars { letter-spacing: 0.08em; font-style: normal; color: #c8bfb2; }
+
+.stars i { font-style: normal; }
+
+.stars .on { color: #c88814; }
+
+.stars .fresh { color: #e0a020; text-shadow: 0 0 0 1px #f3d27a; }
+
+.meter { margin: 0 0 10px; }
+
+.meter-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+
+.week i {
+  display: grid;
+  place-items: center;
+  height: 1.7rem;
+  border-radius: 8px;
+  background: #e7dfd2;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.72rem;
+}
+
+.week i.on { background: var(--blue); color: var(--blue-ink); }
+
+.week i.today { outline: 2px solid var(--ink); }
+
+.stickers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.sticker {
+  margin: 0;
+  background: var(--card);
+  border-radius: 14px;
+  padding: 8px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.sticker-img {
+  width: 100%;
+  height: 72px;
+  object-fit: contain;
+}
+
+.sticker figcaption {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.sticker.locked .sticker-img {
+  filter: brightness(0);
+  opacity: 0.28;
+}
+
+.note .mascot, .summary .mascot { margin-bottom: 8px; }
 
 .sheet, .corner {
   font-family: Palatino, Georgia, serif;
