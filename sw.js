@@ -1,4 +1,4 @@
-const CACHE = "trainer-v4";
+const CACHE = "trainer-v5";
 const FILES = [
   "./",
   "./index.html",
@@ -13,6 +13,7 @@ const FILES = [
   "./js/facts.js",
   "./js/levels.js",
   "./js/mascot.js",
+  "./js/push.js",
   "./js/column-mul.js",
   "./js/long-div.js",
   "./manifest.json",
@@ -45,6 +46,36 @@ self.addEventListener("activate", (event) => {
     keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)),
   )));
   self.clients.claim();
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+  const title = payload.title || "Пушин";
+  const body = payload.body || "Пушин ждёт. Семь минут.";
+  const icon = new URL("./icon-180.png", self.registration.scope).href;
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon,
+    badge: icon,
+    data: { url: new URL("./", self.registration.scope).href },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || new URL("./", self.registration.scope).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of windows) {
+      if (client.url.startsWith(self.registration.scope) && "focus" in client) return client.focus();
+    }
+    return self.clients.openWindow(url);
+  })());
 });
 
 self.addEventListener("fetch", (event) => {

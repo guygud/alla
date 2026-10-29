@@ -43,3 +43,21 @@ export function saveProgress(name, pin, state, attempts) {
 export function parentReport(name, pin) {
   return rpc("mt_parent", { p_name: name, p_pin: pin });
 }
+
+export function savePush(name, pin, endpoint, p256dh, auth) {
+  return rpc("mt_push_save", {
+    p_name: name,
+    p_pin: pin,
+    p_endpoint: endpoint,
+    p_p256dh: p256dh,
+    p_auth: auth,
+  });
+}
+
+export function dropPush(name, pin, endpoint) {
+  return rpc("mt_push_drop", {
+    p_name: name,
+    p_pin: pin,
+    p_endpoint: endpoint,
+  });
+}

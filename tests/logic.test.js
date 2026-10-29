@@ -3,6 +3,7 @@ import test from "node:test";
 import { factCandidates, factKey, nextBox, pickFact } from "../js/facts.js";
 import { applyResult, contributionLines, emptyState, modeMastered, nextLevel, nextSessionMode, normalizeState, practiceCount, recordPractice, reviewTarget, sessionBlurb, sessionPlan, sessionStillOpen, SESSION_MS, touchStarDate } from "../js/levels.js";
 import { stickerLockText, stickerUnlocked, unlockedStickers } from "../js/mascot.js";
+import { VAPID_PUBLIC_KEY, needsReminder, vapidKeyBytes } from "../js/push.js";
 import { columnAnswerDigits, columnModel, generateColumn } from "../js/column-mul.js";
 import { buildDivision, generateDivision } from "../js/long-div.js";
 
@@ -116,6 +117,21 @@ test("если таблица и столбик освоены, занятие �
   assert.ok(plan.length >= 6);
   assert.ok(plan.every((mode) => mode === "division"));
   assert.equal(sessionBlurb(withMastery(["facts", "column"])), "Таблица и\u00A0столбик освоены. Сегодня уголок.");
+});
+
+test("ключ пуша подходит браузеру", () => {
+  const bytes = vapidKeyBytes(VAPID_PUBLIC_KEY);
+  assert.equal(bytes.length, 65);
+  assert.equal(bytes[0], 4);
+});
+
+test("напоминание нужно, пока за этот день нет примеров", () => {
+  const state = emptyState();
+  assert.equal(needsReminder(state, "2026-10-29"), true);
+  state.daily["2026-10-28"] = { facts: { ok: 3, bad: 0, ms: 1000 } };
+  assert.equal(needsReminder(state, "2026-10-29"), true);
+  state.daily["2026-10-29"] = { column: { ok: 0, bad: 1, ms: 4000 } };
+  assert.equal(needsReminder(state, "2026-10-29"), false);
 });
 
 test("цикл занятия повторяется, пока не вышли 7 минут", () => {

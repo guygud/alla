@@ -1,4 +1,4 @@
-import { loginProfile, saveProgress } from "./api.js";
+import { dropPush, loginProfile, saveProgress, savePush } from "./api.js";
 import { columnFrame, columnModel, generateColumn } from "./column-mul.js";
 import { factHint, factKey, factMaxLen, factPrompt, pickFact } from "./facts.js";
 import { renderKeypad } from "./keypad.js";
@@ -34,6 +34,7 @@ import {
 } from "./levels.js";
 import { FALLBACK, STICKERS, reactionFor, stickerLockText, stickerUnlocked, unlockedStickers } from "./mascot.js";
 import { buildDivision, generateDivision } from "./long-div.js";
+import { VAPID_PUBLIC_KEY, vapidKeyBytes } from "./push.js";
 import { freshData, loadLocal, saveLocal } from "./storage.js";
 import { el } from "./ui.js";
 
@@ -57,6 +58,7 @@ let ui = {
   summary: null,
   note: null,
   status: "",
+  remindBusy: false,
 };
 
 let clock = 0;
@@ -202,6 +204,10 @@ function adoptLogin(res, pin) {
     if (res.updated_at) data.state.updatedAt = res.updated_at;
     data.queue = same ? data.queue : [];
   }
+  if (!same) {
+    data.remind = false;
+    data.pushEndpoint = "";
+  }
 }
 
 function homeScreen() {
@@ -240,6 +246,13 @@ function homeScreen() {
       el("div", { class: "stack" },
         el("button", { class: "primary", type: "button", onclick: startSession }, "Начать занятие"),
         el("p", { class: "quiet" }, sessionBlurb(state)),
+        el("button", {
+          class: "text",
+          type: "button",
+          disabled: ui.remindBusy,
+          onclick: data.remind ? disableReminders : enableReminders,
+        }, data.remind ? "Выключить напоминания" : "Напоминать"),
+        data.remind ? el("p", { class: "quiet" }, `Каждый день в${NB}18:00, если примеров ещё не было.`) : null,
         modeCard("facts", levels.facts, () => startFree("facts")),
         modeCard("column", levels.column, () => startFree("column")),
         modeCard("division", levels.division, () => startFree("division")),
@@ -311,6 +324,88 @@ async function switchName() {
   ui.login = { name: "", pin: "", error: "", busy: false, phase: "name" };
   ui.screen = "login";
   render();
+}
+
+async function enableReminders() {
+  if (ui.remindBusy || !data.profile) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    ui.status = "Этот браузер не умеет напоминания.";
+    render();
+    return;
+  }
+  ui.remindBusy = true;
+  ui.status = "";
+  render();
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      ui.status = "Разреши уведомления в настройках телефона.";
+      return;
+    }
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) {
+      ui.status = "Обнови страницу и попробуй ещё раз.";
+      return;
+    }
+    const ready = await navigator.serviceWorker.ready;
+    let sub = await ready.pushManager.getSubscription();
+    if (!sub) {
+      sub = await ready.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKeyBytes(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = sub.toJSON();
+    const res = await savePush(
+      data.profile.name,
+      data.profile.pin,
+      json.endpoint,
+      json.keys?.p256dh,
+      json.keys?.auth,
+    );
+    if (!res?.ok) {
+      ui.status = ERRORS[res?.error] || "Не получилось включить напоминание. Попробуй ещё раз.";
+      return;
+    }
+    data.remind = true;
+    data.pushEndpoint = json.endpoint;
+    ui.status = `Напоминание каждый день в${NB}18:00.`;
+    persist();
+  } catch {
+    ui.status = "Не получилось включить напоминание. Попробуй ещё раз.";
+  } finally {
+    ui.remindBusy = false;
+    if (ui.screen === "home") render();
+  }
+}
+
+async function disableReminders() {
+  if (ui.remindBusy || !data.profile) return;
+  ui.remindBusy = true;
+  ui.status = "";
+  render();
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    const endpoint = sub?.endpoint || data.pushEndpoint || "";
+    if (sub) await sub.unsubscribe();
+    if (endpoint) {
+      try {
+        await dropPush(data.profile.name, data.profile.pin, endpoint);
+      } catch {
+        ui.status = "Напоминание выключено на телефоне. На сервере оно выключится само.";
+      }
+    }
+    data.remind = false;
+    data.pushEndpoint = "";
+    if (!ui.status) ui.status = "Напоминание выключено.";
+    persist();
+  } catch {
+    ui.status = "Не получилось выключить напоминание. Попробуй ещё раз.";
+  } finally {
+    ui.remindBusy = false;
+    if (ui.screen === "home") render();
+  }
 }
 
 function startSession() {

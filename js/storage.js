@@ -10,6 +10,8 @@ export function loadLocal() {
       profile: raw.profile || null,
       state: normalizeState(raw.state),
       queue: Array.isArray(raw.queue) ? raw.queue : [],
+      remind: raw.remind === true,
+      pushEndpoint: typeof raw.pushEndpoint === "string" ? raw.pushEndpoint : "",
     };
   } catch {
     return null;
@@ -21,9 +23,11 @@ export function saveLocal(data) {
     profile: data.profile,
     state: data.state,
     queue: data.queue,
+    remind: data.remind === true,
+    pushEndpoint: data.pushEndpoint || "",
   }));
 }
 
 export function freshData() {
-  return { profile: null, state: emptyState(), queue: [] };
+  return { profile: null, state: emptyState(), queue: [], remind: false, pushEndpoint: "" };
 }

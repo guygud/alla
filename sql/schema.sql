@@ -287,3 +287,248 @@ revoke all on function public.mt_parent(text, text) from public;
 grant execute on function public.mt_login(text, text) to anon, authenticated;
 grant execute on function public.mt_save(text, text, jsonb, timestamptz, jsonb) to anon, authenticated;
 grant execute on function public.mt_parent(text, text) to anon, authenticated;
+
+-- Напоминание в 18:00 по Москве, если за день не было примеров.
+-- Ключи пуша лежат в vault, не в этом файле.
+
+create table if not exists public.mt_push (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.mt_profiles (id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  last_sent date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists mt_push_profile on public.mt_push (profile_id);
+
+alter table public.mt_push enable row level security;
+revoke all on table public.mt_push from public, anon, authenticated;
+
+create or replace function public.mt_push_save(
+  p_name text,
+  p_pin text,
+  p_endpoint text,
+  p_p256dh text,
+  p_auth text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_auth jsonb;
+  v_id uuid;
+begin
+  v_auth := public.mt_auth(p_name, p_pin, false);
+  if coalesce(v_auth->>'ok', 'false') <> 'true' then
+    return v_auth;
+  end if;
+  if p_endpoint is null
+     or char_length(p_endpoint) < 12
+     or char_length(p_endpoint) > 2000
+     or p_endpoint !~ '^https://'
+     or p_p256dh !~ '^[A-Za-z0-9_-]{16,200}$'
+     or p_auth !~ '^[A-Za-z0-9_-]{8,200}$' then
+    return jsonb_build_object('ok', false, 'error', 'bad_endpoint');
+  end if;
+  v_id := (v_auth->>'id')::uuid;
+  insert into public.mt_push (profile_id, endpoint, p256dh, auth)
+  values (v_id, p_endpoint, p_p256dh, p_auth)
+  on conflict (endpoint) do update
+    set profile_id = excluded.profile_id,
+        p256dh = excluded.p256dh,
+        auth = excluded.auth,
+        updated_at = now();
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.mt_push_drop(p_name text, p_pin text, p_endpoint text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_auth jsonb;
+begin
+  v_auth := public.mt_auth(p_name, p_pin, false);
+  if coalesce(v_auth->>'ok', 'false') <> 'true' then
+    return v_auth;
+  end if;
+  delete from public.mt_push
+  where profile_id = (v_auth->>'id')::uuid
+    and endpoint = p_endpoint;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.mt_runtime_secret(p_name text)
+returns text
+language plpgsql
+security definer
+set search_path = public, vault
+as $$
+declare
+  v_secret text;
+begin
+  if p_name not in ('mt_reminder_secret', 'mt_vapid_keys') then
+    return null;
+  end if;
+  select decrypted_secret into v_secret
+  from vault.decrypted_secrets
+  where name = p_name
+  limit 1;
+  return v_secret;
+end;
+$$;
+
+create or replace function public.mt_touch()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.mt_profiles);
+$$;
+
+create or replace function public.mt_due_pushes()
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', s.id)), '[]'::jsonb)
+  from public.mt_push s
+  where s.last_sent is distinct from (timezone('Europe/Moscow', now()))::date
+    and not exists (
+      select 1 from public.mt_attempts a
+      where a.profile_id = s.profile_id
+        and (timezone('Europe/Moscow', a.created_at))::date = (timezone('Europe/Moscow', now()))::date
+    );
+$$;
+
+create or replace function public.mt_push_claim(p_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_endpoint text;
+  v_p256dh text;
+  v_auth text;
+  v_today date := (timezone('Europe/Moscow', now()))::date;
+begin
+  update public.mt_push s
+    set last_sent = v_today,
+        updated_at = now()
+    where s.id = p_id
+      and s.last_sent is distinct from v_today
+      and not exists (
+        select 1 from public.mt_attempts a
+        where a.profile_id = s.profile_id
+          and (timezone('Europe/Moscow', a.created_at))::date = v_today
+      )
+    returning s.endpoint, s.p256dh, s.auth
+    into v_endpoint, v_p256dh, v_auth;
+  if not found then
+    return jsonb_build_object('ok', false);
+  end if;
+  return jsonb_build_object('ok', true, 'endpoint', v_endpoint, 'p256dh', v_p256dh, 'auth', v_auth);
+end;
+$$;
+
+create or replace function public.mt_push_release(p_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.mt_push
+    set last_sent = null,
+        updated_at = now()
+    where id = p_id;
+$$;
+
+create or replace function public.mt_push_forget(p_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  delete from public.mt_push where id = p_id;
+$$;
+
+create or replace function public.mt_fire_reminder(p_remind boolean)
+returns bigint
+language plpgsql
+security definer
+set search_path = public, net, vault
+as $$
+declare
+  v_secret text;
+  v_id bigint;
+begin
+  select decrypted_secret into v_secret
+  from vault.decrypted_secrets
+  where name = 'mt_reminder_secret'
+  limit 1;
+  if v_secret is null then
+    return null;
+  end if;
+  select net.http_post(
+    url := 'https://bamcbftomojefzxzwdmn.supabase.co/functions/v1/send-reminders',
+    body := jsonb_build_object('remind', coalesce(p_remind, false)),
+    params := '{}'::jsonb,
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-reminder-secret', v_secret
+    ),
+    timeout_milliseconds := 20000
+  ) into v_id;
+  return v_id;
+end;
+$$;
+
+revoke all on function public.mt_push_save(text, text, text, text, text) from public;
+revoke all on function public.mt_push_drop(text, text, text) from public;
+revoke all on function public.mt_runtime_secret(text) from public, anon, authenticated;
+revoke all on function public.mt_touch() from public, anon, authenticated;
+revoke all on function public.mt_due_pushes() from public, anon, authenticated;
+revoke all on function public.mt_push_claim(uuid) from public, anon, authenticated;
+revoke all on function public.mt_push_release(uuid) from public, anon, authenticated;
+revoke all on function public.mt_push_forget(uuid) from public, anon, authenticated;
+revoke all on function public.mt_fire_reminder(boolean) from public, anon, authenticated;
+
+grant execute on function public.mt_push_save(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.mt_push_drop(text, text, text) to anon, authenticated;
+grant execute on function public.mt_runtime_secret(text) to service_role;
+grant execute on function public.mt_touch() to service_role;
+grant execute on function public.mt_due_pushes() to service_role;
+grant execute on function public.mt_push_claim(uuid) to service_role;
+grant execute on function public.mt_push_release(uuid) to service_role;
+grant execute on function public.mt_push_forget(uuid) to service_role;
+
+create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
+
+-- 08:00 и 13:00 по Москве только будят базу. В 18:00 уходит пуш.
+do $$
+declare
+  v_name text;
+begin
+  execute format('grant execute on function public.mt_fire_reminder(boolean) to %I', current_user);
+  foreach v_name in array array['mt-ping-08', 'mt-ping-13', 'mt-remind-18'] loop
+    if exists (select 1 from cron.job where jobname = v_name) then
+      perform cron.unschedule(v_name);
+    end if;
+  end loop;
+end $$;
+
+select cron.schedule('mt-ping-08', '0 5 * * *', 'select public.mt_fire_reminder(false)');
+select cron.schedule('mt-ping-13', '0 10 * * *', 'select public.mt_fire_reminder(false)');
+select cron.schedule('mt-remind-18', '0 15 * * *', 'select public.mt_fire_reminder(true)');
